@@ -4,13 +4,20 @@ import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from model import get_address
-from arq import create_pool, Worker
-from arq.connections import RedisSettings
-
-REDIS_SETTINGS = RedisSettings(host="localhost", port=6379)
+import redis
 
 TOKEN = "TOKEN"
 CHAT_ID = 123
+
+redis_conn = redis.Redis(decode_responses=True)
+queue_name = "queue"
+
+def get_task():
+    item = redis_conn.brpop([queue_name], timeout=1)
+    if item is not None:
+        res = item[1]
+        return int(res)
+    return None
 
 logging.basicConfig(level=logging.INFO)
 
@@ -21,31 +28,21 @@ dp = Dispatcher()
 async def message_start(message: types.Message):
     await message.answer("Вас приветствует Smart Birdy!")
 
-async def new_photo(ctx, id):
+async def new_photo(id):
     photo_address = await get_address(id)
     photo_address =  "../smart-birdy/" + photo_address
     photo = types.FSInputFile(photo_address)
     await bot.send_photo(chat_id=CHAT_ID, photo=photo)
 
-async def startup(ctx):
-    ctx["redis"] = await  create_pool(REDIS_SETTINGS)
-
-async def shutdown(ctx):
-    await ctx["redis"].close()
-
 async def main():
     try:
         await dp.start_polling(bot)
+        while True:
+            task = get_task()
+            if task is not None:
+                await new_photo(task)
     finally:
         await bot.session.close()
-
-class WorkerSettings:
-    functions = [new_photo]
-    on_startup = startup
-    on_shutdown = shutdown
-    redis_settings = REDIS_SETTINGS
-
-
 
 try:
     asyncio.run(main())

@@ -5,21 +5,20 @@ import uvicorn
 from model import update_database, add_image
 from pathlib import Path
 import os
-from arq import  create_pool
-from arq.connections import RedisSettings
+import redis
+
+count = 1
 
 app = FastAPI()
 
 DIR = Path(__file__).parent
 
-count = 1
+redis_conn = redis.Redis(decode_responses=True)
+queue_name = "queue"
 
-async def add_task(id):
-    redis = await create_pool(RedisSettings(host="localhost", port=6379))
-    task = await redis.enqueue_job('new_photo', id)
-    result = await task.result()
-    logging.info(result)
-    await redis.close
+def add_task(id):
+        redis_conn.lpush(queue_name, id)
+        logging.info("Tasks added")
 
 @app.get("/PING")
 async def root():
@@ -36,7 +35,7 @@ async def upload_image(image : UploadFile):
     file_address = os.path.abspath(f"/birds/{filename}")
     await update_database()
     await add_image(filename, file_address)
-    await add_task(count)
+    add_task(count)
     count += 1
     return {"status_code" : 200}
 
